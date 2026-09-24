@@ -37,14 +37,29 @@ body{
 .msg-body .text{font-size:15px; line-height:1.4; word-break:break-word;}
 #empty{margin:auto; color:var(--muted); text-align:center; font-size:14px; max-width:360px;}
 #input-area{padding:12px 16px 16px;}
-#input-row{background:var(--input-bg); border-radius:8px; display:flex; align-items:center; padding:0 12px;}
+#input-row{position:relative; background:var(--input-bg); border-radius:8px; display:flex; align-items:center; padding:0 12px;}
+#mention-menu{position:absolute; bottom:42px; left:0; width:290px; max-height:260px; overflow-y:auto; background:var(--bg-darker); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:0 8px 20px rgba(0,0,0,.3); display:none; z-index:2;}
+#mention-menu.open{display:block;}
+.mention-option{display:flex; align-items:center; gap:9px; width:100%; text-align:left; background:none; border:none; color:var(--text); padding:7px 8px; border-radius:4px; cursor:pointer; font-size:14px;}
+.mention-option:hover{background:#404249; color:#fff;}
+.mention-option:hover .member-handle{color:#dbdee1;}
+.member-avatar{width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#fff; font-weight:600; font-size:11px;}
+.member-info{min-width:0; display:flex; flex-direction:column; line-height:1.2;}
+.member-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#f2f3f5;}
+.member-handle{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px;}
+.mention-status{width:8px; height:8px; border-radius:50%; background:var(--online); margin-left:auto; flex-shrink:0;}
+.mention-status.offline{background:var(--muted);}
+.text a{color:#00aff4; text-decoration:underline;}
+.text a:hover{color:#fff;}
+.text .mention{color:#c9cdfb; background:rgba(88,101,242,.25); border-radius:3px; padding:1px 3px;}
 #input-row input{flex:1; background:transparent; border:none; outline:none; color:var(--text); padding:12px 0; font-size:15px;}
-#input-row button{background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; font-weight:600;}
-#input-row button:hover{background:var(--accent-hover);}
-#input-row button:disabled{opacity:.5; cursor:not-allowed;}
-#online{width:200px; background:var(--bg-dark); flex-shrink:0; padding:16px 12px; overflow-y:auto;}
+#send-btn{background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; font-weight:600;}
+#send-btn:hover{background:var(--accent-hover);}
+#send-btn:disabled{opacity:.5; cursor:not-allowed;}
+#online{width:220px; background:var(--bg-dark); flex-shrink:0; padding:16px 12px; overflow-y:auto;}
 #online h3{font-size:12px; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
-.peer{display:flex; align-items:center; gap:8px; padding:6px 4px; font-size:14px;}
+.peer{display:flex; align-items:center; gap:9px; padding:6px 4px; font-size:14px; min-width:0;}
+.member-group-label{color:var(--muted); font-size:11px; text-transform:uppercase; margin:14px 4px 4px;}
 .dot{width:8px; height:8px; border-radius:50%; background:var(--online); flex-shrink:0;}
 #auth-modal{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:10; padding:16px;}
 #auth-modal .box{background:var(--bg); border-radius:8px; padding:24px; width:320px; max-width:100%;}
@@ -98,6 +113,7 @@ body{
     <div id="input-row">
       <input id="msg-input" placeholder="Message #general" disabled>
       <button id="send-btn" disabled>Send</button>
+      <div id="mention-menu"></div>
     </div>
   </div>
 </div>
@@ -131,18 +147,47 @@ if (!clientId){
 let currentChannel = 'general';
 let unsubMessages = null, unsubPresence = null;
 let latestPeers = [];
+let presenceId = clientId;
 let authMode = 'login';
-const COLORS = ['#5865f2','#eb459e','#f23f42','#f0b132','#23a559','#3ba55d'];
+const COLORS = ['#d95763','#d99a3d','#2f9e8f','#c66b9b','#6f8fc7','#8b7bb8'];
 
 function colorFor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[h]; }
 function initials(name){ return (name||'?').trim().slice(0,2).toUpperCase(); }
+function handleFor(name){ return (name||'someone').trim().toLowerCase().replace(/\s+/g,'_'); }
+function uniquePeers(peers){
+  const byName = new Map();
+  peers.forEach(peer => {
+    if (!peer.name) return;
+    const key = peer.name.trim().toLowerCase();
+    const current = byName.get(key);
+    if (!current || (peer.ts || 0) > (current.ts || 0)) byName.set(key, peer);
+  });
+  return [...byName.values()];
+}
 function fmtTime(ts){
   if (!ts) return 'sending…';
   const millis = typeof ts.toMillis === 'function' ? ts.toMillis() : ts;
   return new Date(millis).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function usernameToEmail(u){ return u.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@hangout.local'; }
+function normalizeUsername(value){ return value.trim().toLowerCase(); }
+function validUsername(value){ return /^[a-z0-9._-]{3,24}$/.test(value); }
+function usernameToEmail(u){ return normalizeUsername(u) + '@hangout.local'; }
+function formatMessage(text){
+  let html = escapeHtml(text);
+  html = html.replace(/(^|\s)(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi, (match, prefix, value) => {
+    const trailing = value.match(/[.,!?;:)]+$/)?.[0] || '';
+    const url = value.slice(0, value.length - trailing.length);
+    const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+    return prefix + '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + trailing;
+  });
+  latestPeers.forEach(peer => {
+    if (!peer.name) return;
+    const mention = '@' + escapeHtml(peer.name);
+    html = html.replace(new RegExp('(^|\\s)(' + mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?=\\s|$)', 'gi'), '$1<span class="mention">$2</span>');
+  });
+  return html;
+}
 
 // ---------- Auth UI ----------
 function setAuthMode(mode){
@@ -170,15 +215,23 @@ function friendlyAuthError(code){
     'auth/user-not-found': 'No account with that username.',
     'auth/wrong-password': 'Wrong password.',
     'auth/invalid-credential': 'Wrong username or password.',
-    'auth/invalid-email': 'Username has unsupported characters — try letters and numbers.'
+    'auth/invalid-email': 'Username has unsupported characters — use letters, numbers, dots, underscores, or hyphens.',
+    'auth/network-request-failed': 'Could not reach Firebase. Check your internet connection.',
+    'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
+    'auth/operation-not-allowed': 'Email/password sign-in is disabled in Firebase Authentication.'
   };
   return map[code] || 'Something went wrong. Try again.';
 }
 
 async function submitAuth(){
   const username = document.getElementById('auth-username').value.trim();
+  const normalizedUsername = normalizeUsername(username);
   const password = document.getElementById('auth-password').value;
   if (!username || !password){ showAuthError('Enter a username and password.'); return; }
+  if (!validUsername(normalizedUsername)){
+    showAuthError('Username must be 3–24 characters: letters, numbers, dots, underscores, or hyphens.');
+    return;
+  }
   if (authMode === 'register'){
     const confirm = document.getElementById('auth-password-confirm').value;
     if (password !== confirm){ showAuthError('Passwords do not match.'); return; }
@@ -186,12 +239,12 @@ async function submitAuth(){
   if (!auth){ showAuthError('Not connected to Firebase yet.'); return; }
   const btn = document.getElementById('auth-submit');
   btn.disabled = true;
-  const email = usernameToEmail(username);
+  const email = usernameToEmail(normalizedUsername);
   try {
     if (authMode === 'register'){
       const cred = await auth.createUserWithEmailAndPassword(email, password);
-      await cred.user.updateProfile({ displayName: username });
-      nickname = username;
+      await cred.user.updateProfile({ displayName: normalizedUsername });
+      nickname = normalizedUsername;
       document.getElementById('nick-display').textContent = nickname;
     } else {
       await auth.signInWithEmailAndPassword(email, password);
@@ -218,7 +271,7 @@ function renderMessages(docs){
       <div class="avatar" style="background:${colorFor(m.author||'?')}">${initials(m.author)}</div>
       <div class="msg-body">
         <div class="top"><span class="author">${escapeHtml(m.author||'Someone')}</span><span class="time">${fmtTime(m.ts)}</span></div>
-        <div class="text">${escapeHtml(m.text||'')}</div>
+        <div class="text">${formatMessage(m.text||'')}</div>
       </div>
     </div>
   `).join('');
@@ -258,19 +311,69 @@ async function sendMessage(){
   }
 }
 document.getElementById('send-btn').onclick = sendMessage;
-document.getElementById('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+const messageInput = document.getElementById('msg-input');
+messageInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendMessage();
+  if (e.key === 'Escape') document.getElementById('mention-menu').classList.remove('open');
+});
+
+function renderMentionMenu(){
+  const menu = document.getElementById('mention-menu');
+  const cursor = messageInput.selectionStart ?? messageInput.value.length;
+  const before = messageInput.value.slice(0, cursor);
+  const match = before.match(/(?:^|\s)@([^\s@]*)$/);
+  if (!match){ menu.classList.remove('open'); return; }
+  const query = match[1].toLowerCase();
+  const members = uniquePeers(latestPeers).filter(p => p.name && p.name.trim().toLowerCase() !== nickname.trim().toLowerCase() && p.name.toLowerCase().includes(query));
+  const cutoff = Date.now() - 20000;
+  menu.innerHTML = members.map(p => `<button class="mention-option" type="button" data-name="${escapeHtml(p.name)}">
+    <span class="member-avatar" style="background:${colorFor(p.name)}">${escapeHtml(initials(p.name))}</span>
+    <span class="member-info"><span class="member-name">${escapeHtml(p.name)}</span><span class="member-handle">@${escapeHtml(handleFor(p.name))}</span></span>
+    <span class="mention-status${p.ts <= cutoff ? ' offline' : ''}" title="${p.ts <= cutoff ? 'Offline' : 'Online'}"></span>
+  </button>`).join('') || '<div class="mention-option" style="color:var(--muted)">No matching members</div>';
+  menu.classList.add('open');
+  menu.querySelectorAll('.mention-option[data-name]').forEach(button => {
+    button.onmousedown = e => {
+      e.preventDefault();
+      const name = button.dataset.name;
+      const tokenStart = before.lastIndexOf('@');
+      const after = messageInput.value.slice(cursor);
+      messageInput.value = messageInput.value.slice(0, tokenStart) + '@' + name + ' ' + after;
+      const nextCursor = tokenStart + name.length + 2;
+      messageInput.focus();
+      messageInput.setSelectionRange(nextCursor, nextCursor);
+      renderMentionMenu();
+    };
+  });
+}
+messageInput.addEventListener('input', renderMentionMenu);
+document.addEventListener('click', e => {
+  if (!document.getElementById('input-row').contains(e.target)) document.getElementById('mention-menu').classList.remove('open');
+});
 
 function renderOnline(){
   const cutoff = Date.now() - 20000;
-  const active = latestPeers.filter(p => p.ts > cutoff);
+  const peers = uniquePeers(latestPeers);
+  const active = peers.filter(p => p.ts > cutoff);
+  const offline = peers.filter(p => p.ts <= cutoff);
   document.getElementById('online-count').textContent = active.length;
   document.getElementById('online-list').innerHTML = active.map(p => `
-    <div class="peer"><span class="dot"></span>${escapeHtml(p.name)}${p.id === clientId ? ' (you)' : ''}</div>
-  `).join('') || '<div class="peer" style="color:var(--muted)">Just you right now</div>';
+    <div class="peer">
+      <span class="member-avatar" style="background:${colorFor(p.name)}">${escapeHtml(initials(p.name))}</span>
+      <span class="member-info"><span class="member-name">${escapeHtml(p.name)}${p.name.trim().toLowerCase() === nickname.trim().toLowerCase() ? ' (you)' : ''}</span><span class="member-handle">@${escapeHtml(handleFor(p.name))}</span></span>
+    </div>
+  `).join('') + (offline.length ? '<div class="member-group-label">Offline</div>' + offline.map(p => `
+    <div class="peer" style="opacity:.62">
+      <span class="member-avatar" style="background:${colorFor(p.name)}">${escapeHtml(initials(p.name))}</span>
+      <span class="member-info"><span class="member-name">${escapeHtml(p.name)}</span><span class="member-handle">@${escapeHtml(handleFor(p.name))}</span></span>
+    </div>
+  `).join('') : '') || '<div class="peer" style="color:var(--muted)">No members yet</div>';
+  if (document.getElementById('mention-menu').classList.contains('open')) renderMentionMenu();
 }
 function startPresence(){
   if (!db || !nickname) return;
-  const ref = db.collection('hangout_presence').doc(clientId);
+  presenceId = auth.currentUser?.uid || clientId;
+  const ref = db.collection('hangout_presence').doc(presenceId);
   const beat = () => ref.set({ name: nickname, ts: Date.now() }).catch(()=>{});
   beat();
   setInterval(beat, 8000);
@@ -304,6 +407,10 @@ function init(){
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
   auth = firebase.auth();
+
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {
+    showAuthError('Firebase is connected, but this browser could not save the login session.');
+  });
 
   auth.onAuthStateChanged(user => {
     if (user){
