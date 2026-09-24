@@ -75,6 +75,7 @@ body{
     </div>
     <input id="auth-username" maxlength="24" placeholder="Username" autocomplete="username">
     <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+    <input id="auth-password-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" style="display:none;">
     <div id="auth-error"></div>
     <button id="auth-submit">Log in</button>
   </div>
@@ -135,7 +136,11 @@ const COLORS = ['#5865f2','#eb459e','#f23f42','#f0b132','#23a559','#3ba55d'];
 
 function colorFor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[h]; }
 function initials(name){ return (name||'?').trim().slice(0,2).toUpperCase(); }
-function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
+function fmtTime(ts){
+  if (!ts) return 'sending…';
+  const millis = typeof ts.toMillis === 'function' ? ts.toMillis() : ts;
+  return new Date(millis).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+}
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function usernameToEmail(u){ return u.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@hangout.local'; }
 
@@ -146,6 +151,8 @@ function setAuthMode(mode){
   document.getElementById('tab-register').classList.toggle('active', mode==='register');
   document.getElementById('auth-submit').textContent = mode==='login' ? 'Log in' : 'Create account';
   document.getElementById('auth-password').autocomplete = mode==='login' ? 'current-password' : 'new-password';
+  document.getElementById('auth-password-confirm').style.display = mode==='register' ? 'block' : 'none';
+  document.getElementById('auth-password-confirm').value = '';
   document.getElementById('auth-error').style.display = 'none';
 }
 document.getElementById('tab-login').onclick = () => setAuthMode('login');
@@ -172,6 +179,10 @@ async function submitAuth(){
   const username = document.getElementById('auth-username').value.trim();
   const password = document.getElementById('auth-password').value;
   if (!username || !password){ showAuthError('Enter a username and password.'); return; }
+  if (authMode === 'register'){
+    const confirm = document.getElementById('auth-password-confirm').value;
+    if (password !== confirm){ showAuthError('Passwords do not match.'); return; }
+  }
   if (!auth){ showAuthError('Not connected to Firebase yet.'); return; }
   const btn = document.getElementById('auth-submit');
   btn.disabled = true;
@@ -194,6 +205,7 @@ async function submitAuth(){
 }
 document.getElementById('auth-submit').onclick = submitAuth;
 document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+document.getElementById('auth-password-confirm').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
 
 document.getElementById('logout-btn').onclick = () => { if (auth) auth.signOut(); };
 
@@ -205,7 +217,7 @@ function renderMessages(docs){
     <div class="msg">
       <div class="avatar" style="background:${colorFor(m.author||'?')}">${initials(m.author)}</div>
       <div class="msg-body">
-        <div class="top"><span class="author">${escapeHtml(m.author||'Someone')}</span><span class="time">${fmtTime(m.ts||Date.now())}</span></div>
+        <div class="top"><span class="author">${escapeHtml(m.author||'Someone')}</span><span class="time">${fmtTime(m.ts)}</span></div>
         <div class="text">${escapeHtml(m.text||'')}</div>
       </div>
     </div>
@@ -240,7 +252,7 @@ async function sendMessage(){
   if (!text || !db) return;
   input.value = '';
   try {
-    await db.collection('hangout_messages').add({ channel: currentChannel, author: nickname, text, ts: Date.now() });
+    await db.collection('hangout_messages').add({ channel: currentChannel, author: nickname, text, ts: firebase.firestore.FieldValue.serverTimestamp() });
   } catch(e){
     document.getElementById('messages').insertAdjacentHTML('beforeend', '<div id="empty">Send failed: ' + escapeHtml(e.message || e.code || 'unknown error') + '</div>');
   }
