@@ -180,6 +180,8 @@ async function submitAuth(){
     if (authMode === 'register'){
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: username });
+      nickname = username;
+      document.getElementById('nick-display').textContent = nickname;
     } else {
       await auth.signInWithEmailAndPassword(email, password);
     }
@@ -218,7 +220,7 @@ function subscribeChannel(ch){
   unsubMessages = db.collection('hangout_messages')
     .where('channel', '==', ch).orderBy('ts').limitToLast(200)
     .onSnapshot(snap => renderMessages(snap.docs.map(d => d.data())),
-      () => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages.</div>'; });
+      err => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages: ' + escapeHtml(err.message || err.code || 'unknown error') + '</div>'; });
 }
 
 document.querySelectorAll('.channel').forEach(el => {
@@ -239,7 +241,9 @@ async function sendMessage(){
   input.value = '';
   try {
     await db.collection('hangout_messages').add({ channel: currentChannel, author: nickname, text, ts: Date.now() });
-  } catch(e){}
+  } catch(e){
+    document.getElementById('messages').insertAdjacentHTML('beforeend', '<div id="empty">Send failed: ' + escapeHtml(e.message || e.code || 'unknown error') + '</div>');
+  }
 }
 document.getElementById('send-btn').onclick = sendMessage;
 document.getElementById('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
