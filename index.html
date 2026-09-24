@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hangout</title>
+<style>
+:root{
+  --bg:#313338; --bg-dark:#2b2d31; --bg-darker:#1e1f22; --text:#dbdee1;
+  --muted:#949ba4; --accent:#5865f2; --accent-hover:#4752c4; --border:#26272b;
+  --input-bg:#383a40; --online:#23a559;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg); color:var(--text); display:flex; overflow:hidden;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+#channels{width:220px; background:var(--bg-darker); flex-shrink:0; display:flex; flex-direction:column; padding:12px 8px;}
+#channels h2{font-size:15px; color:#fff; margin:4px 8px 12px; letter-spacing:.3px;}
+.channel{padding:8px 10px; border-radius:6px; color:var(--muted); cursor:pointer; font-size:15px; margin-bottom:2px; display:flex; align-items:center; gap:6px; user-select:none;}
+.channel:hover{background:#35373c; color:var(--text);}
+.channel.active{background:#404249; color:#fff;}
+#nick-box{margin-top:auto; padding:8px 10px; font-size:12px; color:var(--muted); border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:8px;}
+#nick-box b{color:var(--text);}
+#logout-btn{background:none; border:none; color:var(--muted); font-size:11px; cursor:pointer; text-decoration:underline; padding:0;}
+#logout-btn:hover{color:var(--text);}
+#main{flex:1; display:flex; flex-direction:column; min-width:0;}
+#header{height:48px; flex-shrink:0; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 16px; font-weight:600; color:#fff;}
+#messages{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px;}
+.msg{display:flex; gap:12px;}
+.avatar{width:38px; height:38px; border-radius:50%; background:var(--accent); flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-size:14px;}
+.msg-body .top{display:flex; align-items:baseline; gap:8px;}
+.msg-body .author{font-weight:600; color:#fff; font-size:15px;}
+.msg-body .time{font-size:11px; color:var(--muted);}
+.msg-body .text{font-size:15px; line-height:1.4; word-break:break-word;}
+#empty{margin:auto; color:var(--muted); text-align:center; font-size:14px; max-width:360px;}
+#input-area{padding:12px 16px 16px;}
+#input-row{background:var(--input-bg); border-radius:8px; display:flex; align-items:center; padding:0 12px;}
+#input-row input{flex:1; background:transparent; border:none; outline:none; color:var(--text); padding:12px 0; font-size:15px;}
+#input-row button{background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; font-weight:600;}
+#input-row button:hover{background:var(--accent-hover);}
+#input-row button:disabled{opacity:.5; cursor:not-allowed;}
+#online{width:200px; background:var(--bg-dark); flex-shrink:0; padding:16px 12px; overflow-y:auto;}
+#online h3{font-size:12px; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
+.peer{display:flex; align-items:center; gap:8px; padding:6px 4px; font-size:14px;}
+.dot{width:8px; height:8px; border-radius:50%; background:var(--online); flex-shrink:0;}
+#auth-modal{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:10; padding:16px;}
+#auth-modal .box{background:var(--bg); border-radius:8px; padding:24px; width:320px; max-width:100%;}
+#auth-modal h2{margin:0 0 4px; color:#fff; font-size:18px;}
+#auth-modal p{margin:0 0 16px; color:var(--muted); font-size:13px;}
+#auth-tabs{display:flex; gap:4px; margin-bottom:16px; background:var(--bg-darker); border-radius:6px; padding:3px;}
+#auth-tabs button{flex:1; background:none; border:none; color:var(--muted); padding:7px; border-radius:5px; font-size:13px; cursor:pointer; font-weight:600;}
+#auth-tabs button.active{background:var(--input-bg); color:#fff;}
+#auth-modal input{width:100%; padding:10px 12px; border-radius:6px; border:none; background:var(--input-bg); color:var(--text); font-size:14px; outline:none; margin-bottom:10px;}
+#auth-submit{width:100%; padding:10px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; margin-top:4px;}
+#auth-submit:disabled{opacity:.6; cursor:not-allowed;}
+#auth-error{color:#f23f42; font-size:12px; margin:-4px 0 10px; display:none;}
+#setup-banner{background:#f0b132; color:#1e1f22; font-size:13px; padding:10px 16px; display:none; line-height:1.4;}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-thumb{background:#1a1b1e; border-radius:4px;}
+@media (max-width:640px){ #online{display:none;} #channels{width:150px;} }
+</style>
+</head>
+<body>
+
+<div id="auth-modal">
+  <div class="box">
+    <h2>Welcome to Hangout</h2>
+    <p>Log in or create an account to chat with the group.</p>
+    <div id="auth-tabs">
+      <button id="tab-login" class="active">Log in</button>
+      <button id="tab-register">Register</button>
+    </div>
+    <input id="auth-username" maxlength="24" placeholder="Username" autocomplete="username">
+    <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+    <div id="auth-error"></div>
+    <button id="auth-submit">Log in</button>
+  </div>
+</div>
+
+<div id="channels">
+  <h2>🏠 Hangout</h2>
+  <div class="channel active" data-ch="general"># general</div>
+  <div class="channel" data-ch="random"># random</div>
+  <div class="channel" data-ch="gaming"># gaming</div>
+  <div class="channel" data-ch="memes"># memes</div>
+  <div id="nick-box"><span>You are <b id="nick-display">—</b></span><button id="logout-btn">Log out</button></div>
+</div>
+
+<div id="main">
+  <div id="setup-banner">⚠️ Firebase isn't configured yet. Add FIREBASE_CONFIG near the top of the script.</div>
+  <div id="header"># general</div>
+  <div id="messages"><div id="empty">Loading...</div></div>
+  <div id="input-area">
+    <div id="input-row">
+      <input id="msg-input" placeholder="Message #general" disabled>
+      <button id="send-btn" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<div id="online">
+  <h3>Online — <span id="online-count">0</span></h3>
+  <div id="online-list"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+
+<script>
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBuCWVloW2QxsX40IfUIReBg7HWZCzty_I",
+  authDomain: "rod-of-discord.firebaseapp.com",
+  projectId: "rod-of-discord",
+  storageBucket: "rod-of-discord.firebasestorage.app",
+  messagingSenderId: "881588222910",
+  appId: "1:881588222910:web:96d0bf399f2ef8133817ef"
+};
+
+let db = null, auth = null;
+let nickname = '';
+let clientId = localStorage.getItem('hangout_client_id');
+if (!clientId){
+  clientId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
+  localStorage.setItem('hangout_client_id', clientId);
+}
+let currentChannel = 'general';
+let unsubMessages = null, unsubPresence = null;
+let latestPeers = [];
+let authMode = 'login';
+const COLORS = ['#5865f2','#eb459e','#f23f42','#f0b132','#23a559','#3ba55d'];
+
+function colorFor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[h]; }
+function initials(name){ return (name||'?').trim().slice(0,2).toUpperCase(); }
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function usernameToEmail(u){ return u.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@hangout.local'; }
+
+// ---------- Auth UI ----------
+function setAuthMode(mode){
+  authMode = mode;
+  document.getElementById('tab-login').classList.toggle('active', mode==='login');
+  document.getElementById('tab-register').classList.toggle('active', mode==='register');
+  document.getElementById('auth-submit').textContent = mode==='login' ? 'Log in' : 'Create account';
+  document.getElementById('auth-password').autocomplete = mode==='login' ? 'current-password' : 'new-password';
+  document.getElementById('auth-error').style.display = 'none';
+}
+document.getElementById('tab-login').onclick = () => setAuthMode('login');
+document.getElementById('tab-register').onclick = () => setAuthMode('register');
+
+function showAuthError(msg){
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function friendlyAuthError(code){
+  const map = {
+    'auth/email-already-in-use': 'That username is already taken.',
+    'auth/weak-password': 'Password must be at least 6 characters.',
+    'auth/user-not-found': 'No account with that username.',
+    'auth/wrong-password': 'Wrong password.',
+    'auth/invalid-credential': 'Wrong username or password.',
+    'auth/invalid-email': 'Username has unsupported characters — try letters and numbers.'
+  };
+  return map[code] || 'Something went wrong. Try again.';
+}
+
+async function submitAuth(){
+  const username = document.getElementById('auth-username').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if (!username || !password){ showAuthError('Enter a username and password.'); return; }
+  if (!auth){ showAuthError('Not connected to Firebase yet.'); return; }
+  const btn = document.getElementById('auth-submit');
+  btn.disabled = true;
+  const email = usernameToEmail(username);
+  try {
+    if (authMode === 'register'){
+      const cred = await auth.createUserWithEmailAndPassword(email, password);
+      await cred.user.updateProfile({ displayName: username });
+    } else {
+      await auth.signInWithEmailAndPassword(email, password);
+    }
+    // onAuthStateChanged below handles the rest
+  } catch(e){
+    showAuthError(friendlyAuthError(e.code));
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('auth-submit').onclick = submitAuth;
+document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+
+document.getElementById('logout-btn').onclick = () => { if (auth) auth.signOut(); };
+
+// ---------- Chat ----------
+function renderMessages(docs){
+  const el = document.getElementById('messages');
+  if (!docs.length){ el.innerHTML = '<div id="empty">No messages yet. Say hi 👋</div>'; return; }
+  el.innerHTML = docs.map(m => `
+    <div class="msg">
+      <div class="avatar" style="background:${colorFor(m.author||'?')}">${initials(m.author)}</div>
+      <div class="msg-body">
+        <div class="top"><span class="author">${escapeHtml(m.author||'Someone')}</span><span class="time">${fmtTime(m.ts||Date.now())}</span></div>
+        <div class="text">${escapeHtml(m.text||'')}</div>
+      </div>
+    </div>
+  `).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function subscribeChannel(ch){
+  if (!db) return;
+  if (unsubMessages) unsubMessages();
+  document.getElementById('messages').innerHTML = '<div id="empty">Loading...</div>';
+  unsubMessages = db.collection('hangout_messages')
+    .where('channel', '==', ch).orderBy('ts').limitToLast(200)
+    .onSnapshot(snap => renderMessages(snap.docs.map(d => d.data())),
+      () => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages.</div>'; });
+}
+
+document.querySelectorAll('.channel').forEach(el => {
+  el.onclick = () => {
+    document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    currentChannel = el.dataset.ch;
+    document.getElementById('header').textContent = '# ' + currentChannel;
+    document.getElementById('msg-input').placeholder = 'Message #' + currentChannel;
+    subscribeChannel(currentChannel);
+  };
+});
+
+async function sendMessage(){
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text || !db) return;
+  input.value = '';
+  try {
+    await db.collection('hangout_messages').add({ channel: currentChannel, author: nickname, text, ts: Date.now() });
+  } catch(e){}
+}
+document.getElementById('send-btn').onclick = sendMessage;
+document.getElementById('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+function renderOnline(){
+  const cutoff = Date.now() - 20000;
+  const active = latestPeers.filter(p => p.ts > cutoff);
+  document.getElementById('online-count').textContent = active.length;
+  document.getElementById('online-list').innerHTML = active.map(p => `
+    <div class="peer"><span class="dot"></span>${escapeHtml(p.name)}${p.id === clientId ? ' (you)' : ''}</div>
+  `).join('') || '<div class="peer" style="color:var(--muted)">Just you right now</div>';
+}
+function startPresence(){
+  if (!db || !nickname) return;
+  const ref = db.collection('hangout_presence').doc(clientId);
+  const beat = () => ref.set({ name: nickname, ts: Date.now() }).catch(()=>{});
+  beat();
+  setInterval(beat, 8000);
+  if (unsubPresence) unsubPresence();
+  unsubPresence = db.collection('hangout_presence').onSnapshot(snap => {
+    latestPeers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderOnline();
+  });
+  setInterval(renderOnline, 5000);
+}
+
+function enableChat(){
+  document.getElementById('msg-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  subscribeChannel(currentChannel);
+}
+function disableChat(){
+  document.getElementById('msg-input').disabled = true;
+  document.getElementById('send-btn').disabled = true;
+  if (unsubMessages) unsubMessages();
+  if (unsubPresence) unsubPresence();
+}
+
+function firebaseConfigured(){ return FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'PASTE_ME'; }
+
+function init(){
+  if (!firebaseConfigured()){
+    document.getElementById('setup-banner').style.display = 'block';
+    return;
+  }
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.firestore();
+  auth = firebase.auth();
+
+  auth.onAuthStateChanged(user => {
+    if (user){
+      nickname = user.displayName || 'Someone';
+      document.getElementById('nick-display').textContent = nickname;
+      document.getElementById('auth-modal').style.display = 'none';
+      enableChat();
+      startPresence();
+    } else {
+      nickname = '';
+      document.getElementById('auth-modal').style.display = 'flex';
+      disableChat();
+    }
+  });
+}
+init();
+</script>
+</body>
+</html>
